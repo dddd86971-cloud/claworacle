@@ -1,0 +1,31 @@
+{
+  "title": "ClawOracle 回测设计方案",
+  "description": "基于 Bitget spot_get_candles 历史K线，验证盈余动量策略有效性",
+  "methodology": {
+    "dataSource": "Bitget API v2: spot_get_candles",
+    "eventSet": [
+      { "ticker": "NVDA", "symbol": "NVDAONUSDT", "events": 4, "period": "FY2024-FY2025" },
+      { "ticker": "TSLA", "symbol": "TSLAONUSDT", "events": 4, "period": "2024 full year" },
+      { "ticker": "AAPL", "symbol": "AAPLONUSDT", "events": 4, "period": "FY2024 full year" },
+      { "ticker": "GOOGL", "symbol": "GOOGLONUSDT", "events": 4, "period": "2024 full year" }
+    ],
+    "totalEvents": 16,
+    "entryRule": "Emotion thermometer |score| >= 60, IV Crush not triggered",
+    "exitRule": "Take profit +3.5% OR Stop loss -2% OR Auto-close 4h",
+    "benchmark": "Equal-weight Buy-and-Hold of all 4 tickers"
+  },
+  "metrics": [
+    "Direction win rate",
+    "Sharpe ratio",
+    "Maximum drawdown",
+    "vs Buy-and-Hold excess return",
+    "Average holding time",
+    "IV Crush filter effectiveness"
+  ],
+  "status": "Executing — results will be published before Demo Day (2026-06-25)",
+  "outputFiles": [
+    "backtest_results.csv",
+    "event_by_event.json",
+    "performance_chart.png"
+  ]
+}

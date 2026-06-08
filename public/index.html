@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ClawOracle · 美股盈余动量猎手</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────── -->
+  <header>
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">ClawOracle</span>
+        <span class="logo-sub">美股盈余动量猎手</span>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="status-bar" id="statusBar">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">就绪</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="bitget-badge">Powered by Bitget</span>
+      <div class="mode-badge" id="modeBadge">⏳ 加载中</div>
+    </div>
+  </header>
+
+  <!-- ── Control Panel ──────────────────────────── -->
+  <div class="control-panel">
+    <div class="control-group">
+      <label>模式</label>
+      <select id="modeSelect">
+        <option value="replay">📼 Replay Mode (历史回放)</option>
+        <option value="live">🔴 Live Mode (实时监控)</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>财报事件</label>
+      <select id="scenarioSelect">
+        <option value="nvda_q3_2024">NVDA FY2025 Q3 — EPS +8.0% 超预期 📈</option>
+        <option value="tsla_q2_2024">TSLA Q2 2024 — EPS -16.1% 不及预期 📉</option>
+        <option value="aapl_q4_2024">AAPL Q4 FY2024 — 中性信号 ↔</option>
+      </select>
+    </div>
+    <button class="run-btn" id="runBtn" onclick="runAnalysis()">
+      <span id="runBtnIcon">▶</span> 运行分析
+    </button>
+    <button class="reset-btn" onclick="resetPortfolio()">↺ 重置</button>
+  </div>
+
+  <!-- ── Main Grid ───────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- LEFT: Thermometer + Agents -->
+    <div class="left-panel">
+
+      <!-- Emotion Thermometer -->
+      <div class="card thermometer-card">
+        <div class="card-title">情绪温度计</div>
+        <div class="thermometer-container">
+          <svg id="gaugeSvg" viewBox="0 0 300 170" xmlns="http://www.w3.org/2000/svg">
+            <!-- Background arc -->
+            <path d="M 30 140 A 120 120 0 0 1 270 140" fill="none" stroke="#1e2d45" stroke-width="22" stroke-linecap="round"/>
+            <!-- Colored zones -->
+            <path d="M 30 140 A 120 120 0 0 1 80 43" fill="none" stroke="#ff4444" stroke-width="22" stroke-linecap="butt" opacity="0.3"/>
+            <path d="M 80 43 A 120 120 0 0 1 150 20" fill="none" stroke="#ff8800" stroke-width="22" stroke-linecap="butt" opacity="0.3"/>
+            <path d="M 150 20 A 120 120 0 0 1 220 43" fill="none" stroke="#ffcc00" stroke-width="22" stroke-linecap="butt" opacity="0.3"/>
+            <path d="M 220 43 A 120 120 0 0 1 270 140" fill="none" stroke="#00c851" stroke-width="22" stroke-linecap="butt" opacity="0.3"/>
+            <!-- Active arc -->
+            <path id="gaugeArc" d="M 30 140 A 120 120 0 0 1 150 20" fill="none" stroke="#00d4aa" stroke-width="22" stroke-linecap="round"/>
+            <!-- Needle -->
+            <line id="gaugeNeedle" x1="150" y1="140" x2="150" y2="30" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="150" cy="140" r="8" fill="#00d4aa"/>
+            <!-- Labels -->
+            <text x="22" y="158" fill="#ff4444" font-size="11" font-weight="bold">-100</text>
+            <text x="136" y="16" fill="#888" font-size="10">0</text>
+            <text x="262" y="158" fill="#00c851" font-size="11" font-weight="bold">+100</text>
+          </svg>
+          <div class="thermometer-score" id="thermometerScore">—</div>
+          <div class="thermometer-label" id="thermometerLabel">等待分析</div>
+        </div>
+
+        <!-- Score Details -->
+        <div class="score-breakdown" id="scoreBreakdown">
+          <div class="score-row">
+            <span class="score-agent">📊 基本面</span>
+            <div class="score-bar-wrap">
+              <div class="score-bar-fill" id="bar-fundamental" style="width:0%;background:#888"></div>
+            </div>
+            <span class="score-num" id="score-fundamental">—</span>
+          </div>
+          <div class="score-row">
+            <span class="score-agent">🧠 情绪</span>
+            <div class="score-bar-wrap">
+              <div class="score-bar-fill" id="bar-sentiment" style="width:0%;background:#888"></div>
+            </div>
+            <span class="score-num" id="score-sentiment">—</span>
+          </div>
+          <div class="score-row">
+            <span class="score-agent">📈 技术</span>
+            <div class="score-bar-wrap">
+              <div class="score-bar-fill" id="bar-technical" style="width:0%;background:#888"></div>
+            </div>
+            <span class="score-num" id="score-technical">—</span>
+          </div>
+          <div class="score-row risk-row">
+            <span class="score-agent">⚖️ 风控官</span>
+            <div class="score-bar-wrap">
+              <div class="score-bar-fill" id="bar-risk" style="width:0%;background:#888"></div>
+            </div>
+            <span class="score-num" id="score-risk">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="card timer-card">
+        <div class="timer-label">⏱ 分析耗时</div>
+        <div class="timer-value" id="timerValue">0.0s</div>
+        <div class="timer-sub" id="timerSub">等待启动</div>
+      </div>
+
+    </div>
+
+    <!-- MIDDLE: Agent Analysis -->
+    <div class="middle-panel">
+      <div class="card agents-card">
+        <div class="card-title">Agent 辩论实时流</div>
+        <div class="agents-grid">
+          <div class="agent-panel" id="agent-fundamental">
+            <div class="agent-header">
+              <span class="agent-icon">📊</span>
+              <span class="agent-name">基本面分析师</span>
+              <span class="agent-badge" id="badge-fundamental">等待</span>
+            </div>
+            <div class="agent-output" id="output-fundamental">等待分析...</div>
+          </div>
+          <div class="agent-panel" id="agent-sentiment">
+            <div class="agent-header">
+              <span class="agent-icon">🧠</span>
+              <span class="agent-name">情绪分析师</span>
+              <span class="agent-badge" id="badge-sentiment">等待</span>
+            </div>
+            <div class="agent-output" id="output-sentiment">等待分析...</div>
+          </div>
+          <div class="agent-panel" id="agent-technical">
+            <div class="agent-header">
+              <span class="agent-icon">📈</span>
+              <span class="agent-name">技术分析师</span>
+              <span class="agent-badge" id="badge-technical">等待</span>
+            </div>
+            <div class="agent-output" id="output-technical">等待分析...</div>
+          </div>
+          <div class="agent-panel risk-panel" id="agent-risk">
+            <div class="agent-header">
+              <span class="agent-icon">⚖️</span>
+              <span class="agent-name">风险官 (最终裁决)</span>
+              <span class="agent-badge" id="badge-risk">等待</span>
+            </div>
+            <div class="agent-output" id="output-risk">等待分析...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Trade + Log -->
+    <div class="right-panel">
+
+      <!-- Market Data -->
+      <div class="card market-card">
+        <div class="card-title">市场数据</div>
+        <div class="market-grid" id="marketGrid">
+          <div class="market-item">
+            <span class="market-label">代币</span>
+            <span class="market-val" id="mktSymbol">—</span>
+          </div>
+          <div class="market-item">
+            <span class="market-label">价格</span>
+            <span class="market-val" id="mktPrice">—</span>
+          </div>
+          <div class="market-item">
+            <span class="market-label">盘口价差</span>
+            <span class="market-val" id="mktSpread">—</span>
+          </div>
+          <div class="market-item">
+            <span class="market-label">IV Crush</span>
+            <span class="market-val" id="mktIv">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trade Execution -->
+      <div class="card trade-card" id="tradeCard">
+        <div class="card-title">交易执行</div>
+        <div id="tradeNoExec" class="trade-empty">等待信号...</div>
+        <div id="tradeDetails" style="display:none">
+          <div class="trade-direction" id="tradeDirection">—</div>
+          <div class="trade-info-grid">
+            <div class="trade-info-row">
+              <span>数量</span><span id="tradeAmount">—</span>
+            </div>
+            <div class="trade-info-row">
+              <span>价格</span><span id="tradePrice">—</span>
+            </div>
+            <div class="trade-info-row">
+              <span>止盈</span><span id="tradeTp" class="bullish">—</span>
+            </div>
+            <div class="trade-info-row">
+              <span>止损</span><span id="tradeSl" class="bearish">—</span>
+            </div>
+            <div class="trade-info-row">
+              <span>强平</span><span id="tradeAuto">4小时</span>
+            </div>
+          </div>
+          <div class="trade-status" id="tradeStatus">执行中...</div>
+          <div id="tradeOutcome" class="trade-outcome" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- Event Log -->
+      <div class="card log-card">
+        <div class="card-title">系统日志</div>
+        <div class="log-container" id="logContainer"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Portfolio ───────────────────────────────── -->
+  <div class="portfolio-section">
+    <div class="card portfolio-stats-card">
+      <div class="card-title">子账户 (虚拟 10,000 USDT)</div>
+      <div class="portfolio-stats" id="portfolioStats">
+        <div class="stat-item">
+          <div class="stat-val" id="statBalance">$10,000.00</div>
+          <div class="stat-label">总净值</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val" id="statPnl">$0.00</div>
+          <div class="stat-label">总盈亏</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val" id="statPnlPct">0.00%</div>
+          <div class="stat-label">收益率</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val" id="statWinRate">—</div>
+          <div class="stat-label">胜率</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-val" id="statTrades">0</div>
+          <div class="stat-label">总交易数</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card chart-card">
+      <div class="card-title">P&L 曲线</div>
+      <canvas id="pnlChart" height="100"></canvas>
+    </div>
+
+    <div class="card history-card">
+      <div class="card-title">历史交易记录</div>
+      <table class="trade-table">
+        <thead>
+          <tr>
+            <th>时间</th><th>事件</th><th>方向</th><th>金额</th><th>入场</th><th>出场</th><th>盈亏</th><th>状态</th>
+          </tr>
+        </thead>
+        <tbody id="tradeHistoryBody">
+          <tr><td colspan="8" class="empty-row">暂无交易记录</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
