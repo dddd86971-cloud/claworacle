@@ -3,3 +3,4 @@ node_modules/
 data/portfolio.json
 *.log
 .DS_Store
+.vercel

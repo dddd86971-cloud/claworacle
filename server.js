@@ -349,11 +349,16 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// ─── Start ────────────────────────────────────────────────────────────────────
+// ─── Start (direct run) ───────────────────────────────────────────────────────
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n🚀 ClawOracle running at http://localhost:${PORT}`);
-  console.log(`   Mode: ${process.env.ANTHROPIC_API_KEY ? '✅ AI模式 (Claude API)' : '🎬 Demo模式 (Mock AI)'}`);
-  console.log(`   Bitget: ${process.env.BITGET_API_KEY ? '✅ 已配置' : '❌ 未配置'}\n`);
-});
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`\n🚀 ClawOracle running at http://localhost:${PORT}`);
+    console.log(`   Mode: ${process.env.ANTHROPIC_API_KEY ? '✅ AI模式 (Claude API)' : '🎬 Demo模式 (Mock AI)'}`);
+    console.log(`   Bitget: ${process.env.BITGET_API_KEY ? '✅ 已配置' : '❌ 未配置'}\n`);
+  });
+}
+
+// ─── Export for Vercel ────────────────────────────────────────────────────────
+module.exports = app;
