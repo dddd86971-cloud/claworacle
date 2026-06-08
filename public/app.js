@@ -67,9 +67,33 @@ function handleEvent(data) {
       onAnalysisStart(data);
       break;
 
+    case 'live_fetching':
+      addLog(data.message, 'info');
+      break;
+
+    case 'live_error':
+      addLog(data.message, 'warn');
+      if (data.detail) addLog(`   ${data.detail}`, '');
+      break;
+
+    case 'live_window':
+      showLiveWindowBanner(data.message);
+      addLog(data.message, data.message.includes('🔥') ? 'success' : 'warn');
+      break;
+
     case 'data_loaded':
       addLog(`📄 ${data.message}`, 'info');
-      if (data.summary) {
+      if (data.isLive) {
+        if (data.epsSurprisePct != null) {
+          const s = data.epsSurprisePct;
+          addLog(`   EPS: ${s > 0 ? '+' : ''}${s.toFixed(1)}% ${s > 0 ? 'BEAT ▲' : 'MISS ▼'}`, s > 0 ? 'success' : 'error');
+        }
+        if (data.revSurprisePct != null) {
+          const r = data.revSurprisePct;
+          addLog(`   Revenue: ${r > 0 ? '+' : ''}${r.toFixed(1)}%`, '');
+        }
+        if (data.windowStatus) addLog(`   ${data.windowStatus}`, '');
+      } else if (data.summary) {
         addLog(`   ${data.summary.eps}`, '');
         addLog(`   ${data.summary.revenue}`, '');
       }
@@ -558,27 +582,154 @@ function updateTradeHistory(trades) {
   }).join('');
 }
 
+// ── Mode Switch ───────────────────────────────────────────────────────────────
+
+function onModeChange() {
+  const mode = document.getElementById('modeSelect').value;
+  const isLive = mode === 'live';
+
+  document.getElementById('replayGroup').style.display = isLive ? 'none' : '';
+  document.getElementById('liveGroup').style.display   = isLive ? '' : 'none';
+  document.getElementById('calendarBtn').style.display = isLive ? '' : 'none';
+  document.getElementById('calendarPanel').style.display = 'none';
+
+  if (isLive) {
+    loadCalendar();
+  }
+}
+
 // ── Controls ──────────────────────────────────────────────────────────────────
 
 function runAnalysis() {
   if (analysisRunning) return;
 
   const mode = document.getElementById('modeSelect').value;
-  const scenario = document.getElementById('scenarioSelect').value;
+  const scenario    = document.getElementById('scenarioSelect').value;
+  const liveTicker  = document.getElementById('liveTickerSelect').value;
 
   fetch(`${API}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode, scenario })
+    body: JSON.stringify({ mode, scenario, liveTicker })
   })
     .then(r => r.json())
     .then(d => { if (!d.success) addLog(`启动失败: ${d.error}`, 'error'); })
     .catch(err => addLog(`连接错误: ${err.message}`, 'error'));
 }
 
+// ── Earnings Calendar ─────────────────────────────────────────────────────────
+
+function loadCalendar() {
+  const panel = document.getElementById('calendarPanel');
+  const grid  = document.getElementById('calendarGrid');
+  panel.style.display = 'block';
+  grid.innerHTML = '<div class="calendar-loading">📡 正在拉取财报日历...</div>';
+
+  fetch(`${API}/api/calendar`)
+    .then(r => r.json())
+    .then(({ data }) => renderCalendar(data))
+    .catch(err => {
+      grid.innerHTML = `<div class="calendar-loading" style="color:#ff4444">⚠️ 日历加载失败: ${err.message}</div>`;
+    });
+}
+
+function renderCalendar(items) {
+  const grid = document.getElementById('calendarGrid');
+  if (!items || !items.length) {
+    grid.innerHTML = '<div class="calendar-loading">暂无数据</div>';
+    return;
+  }
+
+  grid.innerHTML = items.map(item => {
+    if (item.error) {
+      return `<div class="calendar-card error">
+        <div class="cal-ticker">${item.ticker}</div>
+        <div class="cal-date" style="color:#ff4444">${item.error}</div>
+      </div>`;
+    }
+
+    const inWindow = item.inMomentumWindow;
+    const isRecent = item.isRecent;
+    const cardClass = inWindow ? 'in-window' : isRecent ? 'recent' : '';
+
+    // EPS surprise display
+    const surp = item.epsSurprisePct;
+    let surpriseHtml = '<div class="cal-surprise neutral">—</div>';
+    if (surp != null) {
+      const cls = surp > 0 ? 'positive' : surp < 0 ? 'negative' : 'neutral';
+      const arrow = surp > 0 ? '▲' : surp < 0 ? '▼' : '→';
+      surpriseHtml = `<div class="cal-surprise ${cls}">${arrow} EPS ${surp > 0 ? '+' : ''}${surp.toFixed(1)}%</div>`;
+    }
+
+    // Badge
+    let badge = '';
+    if (inWindow) badge = '<span class="cal-badge window">🔥 窗口内</span>';
+    else if (isRecent) badge = '<span class="cal-badge recent">最近</span>';
+    else if (item.daysUntilNext != null && item.daysUntilNext >= 0)
+      badge = `<span class="cal-badge upcoming">↑ ${item.daysUntilNext}天</span>`;
+
+    // Date info
+    const reportedStr = item.reportedDate
+      ? `上次: ${item.reportedDate}${item.hoursAgoReported != null ? ` (${item.hoursAgoReported}h前)` : ''}`
+      : '无历史数据';
+    const nextStr = item.nextEarningsDate
+      ? `下次: ${item.nextEarningsDate}`
+      : '';
+
+    // Action hint
+    let actionHtml = '';
+    if (inWindow) {
+      actionHtml = `<div class="cal-action">▶ 点击立即分析</div>`;
+    } else if (isRecent) {
+      actionHtml = `<div class="cal-action" style="color:var(--warn)">⚠️ 超出4h窗口，信号减弱</div>`;
+    }
+
+    return `<div class="calendar-card ${cardClass}" onclick="selectLiveTicker('${item.ticker}')">
+      <div>
+        <span class="cal-ticker">${item.ticker}</span>${badge}
+      </div>
+      ${surpriseHtml}
+      <div class="cal-date">${reportedStr}</div>
+      ${nextStr ? `<div class="cal-next">${nextStr}</div>` : ''}
+      ${actionHtml}
+    </div>`;
+  }).join('');
+}
+
+function selectLiveTicker(ticker) {
+  // Switch to live mode and select this ticker
+  document.getElementById('modeSelect').value = 'live';
+  onModeChange();
+  document.getElementById('liveTickerSelect').value = ticker;
+  addLog(`📌 已选择 ${ticker} — 点击"运行分析"开始`, 'info');
+}
+
 function resetPortfolio() {
   if (!confirm('确定要重置投资组合吗？')) return;
   fetch(`${API}/api/portfolio/reset`, { method: 'POST' }).then(() => loadPortfolio());
+}
+
+// ── Live Window Banner ────────────────────────────────────────────────────────
+
+function showLiveWindowBanner(message) {
+  // Remove existing banner
+  const existing = document.getElementById('liveWindowBanner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'liveWindowBanner';
+  banner.className = 'live-window-banner ' +
+    (message.includes('🔥') ? 'active' : message.includes('⚠️') ? 'warning' : 'info');
+  banner.textContent = message;
+
+  // Insert after control panel
+  const cp = document.querySelector('.control-panel');
+  if (cp && cp.nextSibling) {
+    cp.parentNode.insertBefore(banner, cp.nextSibling);
+  }
+
+  // Auto-hide after 30s
+  setTimeout(() => banner.remove(), 30000);
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────

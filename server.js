@@ -10,6 +10,7 @@ const { runFullAgentPipeline } = require('./src/claude');
 const { getTickerPrice, getCandles, getDepth, placeSpotOrder, placePlanOrder, placeFuturesShortOrder, calculateIvCrushRisk, calculateSpreadPct } = require('./src/bitget');
 const { getPaperPortfolio, addTrade, simulateTradeOutcome, getPortfolioStats, resetPortfolio } = require('./src/paper');
 const { listScenarios, getReplayScenario } = require('./src/replay');
+const { getEarningsData, buildLiveScenario, getEarningsCalendar } = require('./src/earnings');
 
 const app = express();
 app.use(cors());
@@ -51,12 +52,12 @@ app.post('/api/analyze', async (req, res) => {
     return res.status(429).json({ error: 'Analysis already running' });
   }
 
-  const { mode = 'replay', scenario = 'nvda_q3_2024' } = req.body;
-  res.json({ success: true, message: 'Analysis started', mode, scenario });
+  const { mode = 'replay', scenario = 'nvda_q3_2024', liveTicker = 'NVDA' } = req.body;
+  res.json({ success: true, message: 'Analysis started', mode, scenario, liveTicker });
 
   // Run async
   analysisRunning = true;
-  runAnalysis({ mode, scenario }).catch(err => {
+  runAnalysis({ mode, scenario, liveTicker }).catch(err => {
     broadcast({ type: 'error', message: err.message });
   }).finally(() => {
     analysisRunning = false;
@@ -65,7 +66,7 @@ app.post('/api/analyze', async (req, res) => {
 
 // ─── Core Analysis Engine ─────────────────────────────────────────────────────
 
-async function runAnalysis({ mode, scenario }) {
+async function runAnalysis({ mode, scenario, liveTicker = 'NVDA' }) {
   const startTime = Date.now();
 
   broadcast({
@@ -89,9 +90,52 @@ async function runAnalysis({ mode, scenario }) {
     });
     await sleep(600);
   } else {
-    broadcast({ type: 'monitoring', message: '📡 监控 SEC EDGAR 中...' });
-    scenarioData = getReplayScenario('nvda_q3_2024'); // fallback for live demo
-    await sleep(1000);
+    // ── Live Mode: fetch real earnings data ──────────────────────────────
+    broadcast({ type: 'live_fetching', message: `📡 正在拉取 ${liveTicker} 实时财报数据...` });
+
+    try {
+      const earningsData = await getEarningsData(liveTicker);
+
+      // Get real token price
+      let livePrice = 100;
+      try {
+        const sym = earningsData.symbol;
+        const tk  = await getTickerPrice(sym);
+        livePrice = parseFloat(tk.lastPr || tk.close || 100);
+      } catch {}
+
+      scenarioData = buildLiveScenario(earningsData, livePrice);
+
+      const hoursAgo = earningsData.hoursAgoReported;
+      const windowStatus = hoursAgo != null && hoursAgo < 4
+        ? `🔥 在盈余动量窗口内 (${hoursAgo.toFixed(1)}h 前发布)`
+        : hoursAgo != null
+          ? `⏰ 发布于 ${hoursAgo.toFixed(0)}h 前 (超出4h动量窗口，信号参考性下降)`
+          : '⚠️ 无法确认发布时间';
+
+      broadcast({
+        type: 'data_loaded',
+        message: `📄 实时财报: ${earningsData.ticker} (${earningsData.reportedDate})`,
+        summary: scenarioData.summary,
+        isLive: true,
+        windowStatus,
+        epsSurprisePct: earningsData.epsSurprisePct,
+        revSurprisePct: earningsData.revSurprisePct,
+        hoursAgoReported: hoursAgo != null ? hoursAgo.toFixed(1) : null
+      });
+      broadcast({ type: 'live_window', message: windowStatus });
+      await sleep(500);
+
+    } catch (err) {
+      // Graceful fallback: real-time data unavailable
+      broadcast({
+        type: 'live_error',
+        message: `⚠️ 实时数据获取失败: ${err.message}`,
+        detail: '将使用最近 Replay 场景作为参考 (仅供展示)'
+      });
+      scenarioData = getReplayScenario('nvda_q3_2024');
+      await sleep(600);
+    }
   }
 
   // ── Step 2: Fetch Bitget Market Data ───────────────────────────────────────
@@ -341,6 +385,33 @@ async function executePaperTrade({ scenarioData, action, positionSize, price, sc
 
 app.get('/api/scenarios', (req, res) => {
   res.json(listScenarios());
+});
+
+// Real earnings calendar — upcoming dates + recent events for all 4 tracked tickers
+app.get('/api/calendar', async (req, res) => {
+  try {
+    const calendar = await getEarningsCalendar();
+    res.json({ success: true, data: calendar, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Quick check: is any ticker in the 4h earnings momentum window right now?
+app.get('/api/live-check', async (req, res) => {
+  try {
+    const calendar = await getEarningsCalendar();
+    const inWindow = calendar.filter(c => c.inMomentumWindow);
+    const recent   = calendar.filter(c => c.isRecent && !c.inMomentumWindow);
+    res.json({
+      inMomentumWindow: inWindow,
+      recentEarnings:   recent,
+      hasLiveSignal:    inWindow.length > 0,
+      timestamp:        new Date().toISOString()
+    });
+  } catch (err) {
+    res.json({ hasLiveSignal: false, error: err.message });
+  }
 });
 
 app.get('/api/portfolio', (req, res) => {

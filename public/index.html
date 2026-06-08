@@ -33,12 +33,13 @@
   <div class="control-panel">
     <div class="control-group">
       <label>模式</label>
-      <select id="modeSelect">
+      <select id="modeSelect" onchange="onModeChange()">
         <option value="replay">📼 Replay Mode (历史回放)</option>
-        <option value="live">🔴 Live Mode (实时监控)</option>
+        <option value="live">🔴 Live Mode (实时财报)</option>
       </select>
     </div>
-    <div class="control-group">
+    <!-- Replay: scenario selector -->
+    <div class="control-group" id="replayGroup">
       <label>财报事件</label>
       <select id="scenarioSelect">
         <option value="nvda_q3_2024">NVDA FY2025 Q3 — EPS +8.0% 超预期 📈 BUY</option>
@@ -47,10 +48,29 @@
         <option value="aapl_q4_2024">AAPL Q4 FY2024 — 中性弱信号 ↔ WAIT</option>
       </select>
     </div>
+    <!-- Live: ticker selector -->
+    <div class="control-group" id="liveGroup" style="display:none">
+      <label>追踪股票</label>
+      <select id="liveTickerSelect">
+        <option value="NVDA">NVDA — 英伟达</option>
+        <option value="TSLA">TSLA — 特斯拉</option>
+        <option value="AAPL">AAPL — 苹果</option>
+        <option value="GOOGL">GOOGL — 谷歌</option>
+      </select>
+    </div>
     <button class="run-btn" id="runBtn" onclick="runAnalysis()">
       <span id="runBtnIcon">▶</span> 运行分析
     </button>
+    <button class="reset-btn" id="calendarBtn" onclick="loadCalendar()" style="display:none">📅 财报日历</button>
     <button class="reset-btn" onclick="resetPortfolio()">↺ 重置</button>
+  </div>
+
+  <!-- ── Live Mode: Earnings Calendar ──────────────── -->
+  <div id="calendarPanel" class="calendar-panel" style="display:none">
+    <div class="calendar-title">📅 实时财报日历 — 追踪股票</div>
+    <div id="calendarGrid" class="calendar-grid">
+      <div class="calendar-loading">加载中...</div>
+    </div>
   </div>
 
   <!-- ── Main Grid ───────────────────────────────── -->
