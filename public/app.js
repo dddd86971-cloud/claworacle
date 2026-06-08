@@ -20,10 +20,14 @@ function checkHealth() {
   fetch(`${API}/api/health`)
     .then(r => r.json())
     .then(d => {
-      document.getElementById('modeBadge').textContent =
-        d.mode === 'AI模式' ? '✅ Claude AI 模式' : '🎬 Demo 模式';
-      document.getElementById('modeBadge').style.color =
-        d.mode === 'AI模式' ? '#00d4aa' : '#ff9500';
+      const badge = document.getElementById('modeBadge');
+      if (d.deepseekConfigured) {
+        badge.textContent = '🧠 DeepSeek AI 模式';
+        badge.style.color = '#00d4aa';
+      } else {
+        badge.textContent = '🎬 Demo 模式';
+        badge.style.color = '#ff9500';
+      }
     })
     .catch(() => {
       document.getElementById('modeBadge').textContent = '⚠️ 连接中...';
@@ -122,6 +126,7 @@ function handleEvent(data) {
       onDecision(data);
       break;
 
+    case 'order_routing':
     case 'trade_start':
       addLog(data.message, 'info');
       break;

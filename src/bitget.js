@@ -145,6 +145,71 @@ async function placePlanOrder(symbol, side, triggerPrice, executePrice, size) {
   }
 }
 
+// Place futures short order (for SELL signals — uses mix/perpetual contract)
+async function placeFuturesShortOrder(symbol, side, price, quantity) {
+  // Convert spot symbol to futures: NVDAONUSDT → NVDAONUSDT (same on Bitget mix)
+  // Side: 'open_sell' = open short, 'close_buy' = close short
+  try {
+    const body = {
+      symbol,
+      marginCoin: 'USDT',
+      side: side,              // 'open_sell' or 'close_buy'
+      orderType: 'market',
+      size: quantity.toFixed(4),
+      tradeSide: 'open',
+      force: 'gtc'
+    };
+    const result = await bitgetPost('/api/v2/mix/order/place-order', body);
+    return { ...result, simulated: false, orderCategory: 'futures_short' };
+  } catch (err) {
+    // Graceful fallback — paper trade simulated
+    return {
+      orderId: `SIM_SHORT_${Date.now()}`,
+      symbol,
+      side: 'short',
+      price,
+      quantity,
+      status: 'filled_simulated',
+      simulated: true,
+      orderCategory: 'futures_short',
+      simulatedAt: new Date().toISOString()
+    };
+  }
+}
+
+// Calculate IV Crush risk from K-line candle data
+// Returns true if recent 5-period realized volatility > 1.8× 20-period baseline
+// (proxy for pre-earnings option IV inflation that will collapse after the print)
+function calculateIvCrushRisk(candles) {
+  if (!candles || candles.length < 22) return false;
+
+  // candle format: [timestamp, open, high, low, close, volume]
+  const closes = candles.map(c => parseFloat(c[4])).filter(v => !isNaN(v) && v > 0);
+  if (closes.length < 22) return false;
+
+  // Log returns for statistical volatility
+  const returns = [];
+  for (let i = 1; i < closes.length; i++) {
+    returns.push(Math.log(closes[i] / closes[i - 1]));
+  }
+
+  // Recent 5-period volatility (std dev of log returns)
+  const r5 = returns.slice(-5);
+  const mean5 = r5.reduce((a, b) => a + b, 0) / r5.length;
+  const vol5 = Math.sqrt(r5.reduce((s, r) => s + Math.pow(r - mean5, 2), 0) / r5.length);
+
+  // Baseline 20-period volatility
+  const r20 = returns.slice(-20);
+  const mean20 = r20.reduce((a, b) => a + b, 0) / r20.length;
+  const vol20 = Math.sqrt(r20.reduce((s, r) => s + Math.pow(r - mean20, 2), 0) / r20.length);
+
+  if (vol20 < 0.0001) return false; // avoid division by near-zero
+
+  const ratio = vol5 / vol20;
+  // Risk HIGH if short-term vol is 80%+ above long-term baseline
+  return ratio > 1.8;
+}
+
 // Calculate bid-ask spread percentage from depth
 function calculateSpreadPct(depth) {
   if (!depth.asks || !depth.bids || !depth.asks.length || !depth.bids.length) return null;
@@ -160,5 +225,7 @@ module.exports = {
   getAccountAssets,
   placeSpotOrder,
   placePlanOrder,
+  placeFuturesShortOrder,
+  calculateIvCrushRisk,
   calculateSpreadPct
 };
